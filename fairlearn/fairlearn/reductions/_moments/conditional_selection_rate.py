@@ -102,7 +102,7 @@ class ConditionalSelectionRate(ClassificationMoment):
 ConditionalSelectionRate.__module__ = "fairlearn.reductions"
 
 
-class DemographicParity(ConditionalSelectionRate):
+class   DemographicParity(ConditionalSelectionRate):
     """ Demographic parity
     A classifier h satisfies DemographicParity if
     Prob[h(X) = y' | A = a] = Prob[h(X) = y'] for all a, y'

@@ -2,6 +2,7 @@
 from utils import *
 from attacks import *
 from train import *
+from train_pfml_dd import *
 
 import random
 import tensorflow as tf
@@ -26,7 +27,7 @@ parser.add_argument('--gamma', default=150)
 parser.add_argument('--learning_rate', default=0.001)
 parser.add_argument('--flip_label', action='store_true')
 parser.add_argument('--flip_feature', action='store_true')
-parser.add_argument('--fair_measure', default='equalized_odds')
+parser.add_argument('--fair_measure', default='equalized_odds', choices=['equalized_odds', 'demographic_parity', 'distribution_difference'])
 parser.add_argument('--dataset', default='compas')
 args = parser.parse_args()
 
@@ -52,7 +53,8 @@ number_of_feature_flip = 1 if is_feature_flip else 0
 if dataset == 'compas':
     one_hot_features = [5, 6, 7, 8, 9, 10]
 elif dataset == 'adult':
-    one_hot_features = np.concatenate([np.arange(6, 79), np.arange(80, 107)], axis=0)
+    one_hot_features = np.concatenate(
+        [np.arange(6, 79), np.arange(80, 107)], axis=0)
 else:
     print('{} is not supported. Please try compas or adult'.format(measure))
     exit()
@@ -67,6 +69,13 @@ elif measure == 'demographic_parity':
     train_fair_model_reduction = train_fair_model_reduction_Demographic_Parity
     train_fair_model_pp = train_fair_model_post_processing_Demographic_Parity
     fair_gap = Demographic_Parity
+elif measure == 'distribution_difference':
+    fair_constraint = DistributionDifference
+    train_fair_model_reduction = train_fair_model_reduction_Demographic_Parity
+    train_fair_model_pp = train_fair_model_post_processing_Demographic_Parity
+    def fair_gap(g, y_pred):
+        return measures_from_Yhat(None, g, y_pred)['DD']
+    fair_gap = dd_loss
 else:
     print('{} is not supported. Please try equalized_odds or demographic_parity'.format(measure))
     exit()
@@ -77,8 +86,10 @@ os.environ['TF_CUDNN_DETERMINISTIC'] = '1'  # new flag present in tf 2.0+
 random.seed(SEED)
 np.random.seed(SEED)
 tf.compat.v1.set_random_seed(SEED)
-session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
-sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
+session_conf = tf.compat.v1.ConfigProto(
+    intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
+sess = tf.compat.v1.Session(
+    graph=tf.compat.v1.get_default_graph(), config=session_conf)
 K.set_session(sess)
 
 # Generate data using generate_dataset method from [1]
@@ -165,9 +176,10 @@ for t in [0, 2, 5, 8, 10]:
 
     # Train fair model - reduction
     for gap in [0.12, 0.1, 0.07, 0.05]:
-        fair_model = train_fair_model_reduction(base_model, X_POISON, Y_POISON, G_POISON, fair_constraint(), gap)
+        fair_model = train_fair_model_reduction(
+            base_model, X_POISON, Y_POISON, G_POISON, fair_constraint(), gap)
         pred_fair = np.array(fair_model(X_TEST))
-        ############ need revision
+        # need revision
         row_acc.append(accuracy(Y_TEST, pred_fair))
         if measure == 'equalized_odds':
             row_fair.append(max(fair_gap(G_TEST, pred_fair, Y_TEST)))
@@ -178,7 +190,7 @@ for t in [0, 2, 5, 8, 10]:
     fair_model_PP = train_fair_model_pp(base_model, X_POISON, Y_POISON.astype(int), G_POISON.astype(int),
                                         measure)
     pred_fair_PP = np.array(fair_model_PP(X_TEST, G_TEST.astype(int)))
-    ######## need revision
+    # need revision
     row_acc.append(accuracy(Y_TEST, pred_fair_PP))
     if measure == 'equalized_odds':
         row_fair.append(max(fair_gap(G_TEST, pred_fair_PP, Y_TEST)))
